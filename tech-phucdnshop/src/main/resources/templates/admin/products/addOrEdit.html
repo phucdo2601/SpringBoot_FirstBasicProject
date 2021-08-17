@@ -12,12 +12,13 @@
           <form action="/admin/products/saveOrUpdate" method="post" 
             enctype="multipart/form-data" th:object="${product}">
               <div class="card-header">
-              <h2>Add New Product</h2>
+                <h2 th:text="${product.isEdit? 'Edit Product' : 'Add New Product'}"></h2>
               </div>
               <div class="card-body">
                   <div class="row">
                       <div class="col-7">
-                          <div class="form-group">
+                          <input type="hidden" th:field="*{isEdit}">
+                          <div class="form-group" th:if="${product.isEdit}">
                               <label for="productId">Product ID:</label>
                               <input type="text" class="form-control" name="productId" id="productId" 
                                 th:field="*{productId}"
@@ -79,7 +80,8 @@
                                 }
                               }
                           </script>
-                          <img id="image" src="/images/logo.png" width="90%"
+                          <img id="image" th:src="${product.image != null? '/admin/products/images/' + product.image : 'images/logo.jpg'}"
+                              width="90%"
                               class="img-fluid" alt="">
                      
                           <div class="form-group">
@@ -121,9 +123,10 @@
                   </div>
               </div>
               <div class="card-footer text-muted">
-                  <button class="btn btn-success">New</button>
-                  <button class="btn btn-primary">Save</button>
-                  <button class="btn btn-danger float-right">Delete</button>
+                  <a th:href="@{/admin/products/add}" class="btn btn-success">New</a>
+                  <button th:text="${product.isEdit?'Update':'Save'}" class="btn btn-primary"></button>
+                  <a th:if="${product.isEdit}" th:href="@{'/admin/products/delete/' + ${product.productId}}" 
+                    class="btn btn-danger float-right">Delete</a>
 
               </div>
           </form>

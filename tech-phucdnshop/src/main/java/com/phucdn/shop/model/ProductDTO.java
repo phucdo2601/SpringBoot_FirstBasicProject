@@ -25,4 +25,6 @@ public class ProductDTO {
 	private Date enteredDate;
 	private short status;
 	private Long categoryId;
+	
+	private Boolean isEdit;
 }

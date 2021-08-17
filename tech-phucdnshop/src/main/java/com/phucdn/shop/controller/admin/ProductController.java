@@ -1,7 +1,9 @@
 package com.phucdn.shop.controller.admin;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -9,10 +11,13 @@ import javax.validation.Valid;
 
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.ui.ModelMap;
@@ -24,143 +29,187 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.ModelAndView;
 
 import com.phucdn.shop.domain.Category;
+import com.phucdn.shop.domain.Product;
 import com.phucdn.shop.model.CategoryDTO;
 import com.phucdn.shop.model.ProductDTO;
 import com.phucdn.shop.service.CategoryService;
 import com.phucdn.shop.service.ProductService;
+import com.phucdn.shop.service.StorageService;
 
 @Controller
 @RequestMapping("admin/products")
 public class ProductController {
 	@Autowired
 	CategoryService categoryService;
-	
+
 	@Autowired
 	ProductService productService;
-	
+
+	@Autowired
+	StorageService storageService;
+
 	@ModelAttribute("categories")
-	public List<CategoryDTO> getCategories(){
-		return categoryService.findAll().stream().map(item->{
+	public List<CategoryDTO> getCategories() {
+		return categoryService.findAll().stream().map(item -> {
 			CategoryDTO dto = new CategoryDTO();
 			BeanUtils.copyProperties(item, dto);
 			return dto;
 		}).toList();
 	}
-	
+
 	@GetMapping("add")
 	public String add(Model model) {
-		model.addAttribute("product", new ProductDTO());
+		ProductDTO dto = new ProductDTO();
+		dto.setIsEdit(false);
+		model.addAttribute("product", dto);
+
 		return "admin/products/addOrEdit";
 	}
-	
+
 	@GetMapping("edit/{productId}")
 	public ModelAndView edit(ModelMap model, @PathVariable("productId") Long productId) {
-		
-		Optional<Category> opt = categoryService.findById(productId);
-		CategoryDTO dto = new CategoryDTO();
+
+		Optional<Product> opt = productService.findById(productId);
+		ProductDTO dto = new ProductDTO();
 		if (opt.isPresent()) {
-			Category entity = opt.get();
-			
+			Product entity = opt.get();
+
 			BeanUtils.copyProperties(entity, dto);
+
+			dto.setCategoryId(entity.getCategory().getCategoryId());
+
 			dto.setIsEdit(true);
-			
-			model.addAttribute("category", dto);
-			
+
+			model.addAttribute("product", dto);
+
 			return new ModelAndView("admin/products/addOrEdit", model);
 		}
-		
-		model.addAttribute("message", "Category is not existed");
+
+		model.addAttribute("message", "Product is not existed");
 		return new ModelAndView("redirect:/admin/products", model);
 	}
-	
+
+	@GetMapping("/images/{filename:.+}")
+	@ResponseBody
+	public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
+		Resource file = storageService.loadAsResource(filename);
+
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getFilename() + "\"")
+				.body(file);
+	}
+
 	@GetMapping("delete/{productId}")
-	public ModelAndView delete(ModelMap model, @PathVariable("productId") Long productId) {
-		
-		categoryService.deleteById(productId);
-		model.addAttribute("message", "Category is deleted!");
-		
+	public ModelAndView delete(ModelMap model, @PathVariable("productId") Long productId) throws IOException {
+
+		Optional<Product> opt = productService.findById(productId);
+		if (opt.isPresent()) {
+			if (!StringUtils.isEmpty(opt.get().getImage())) {
+				storageService.delete(opt.get().getImage());
+			}
+			productService.delete(opt.get());
+			
+			model.addAttribute("message", "Product is deleted!");
+		} else {
+			model.addAttribute("message", "Product is not found!");
+		}
+
 		return new ModelAndView("forward:/admin/products", model);
 	}
-	
+
 	@PostMapping("saveOrUpdate")
-	public ModelAndView saveOrUpdate(ModelMap model, 
-			@Valid @ModelAttribute("category") CategoryDTO dto, BindingResult result) {
+	public ModelAndView saveOrUpdate(ModelMap model, @Valid @ModelAttribute("product") ProductDTO dto,
+			BindingResult result) {
 		if (result.hasErrors()) {
 			return new ModelAndView("admin/products/addOrEdit");
 		}
-		Category entity = new Category();
+		Product entity = new Product();
 		BeanUtils.copyProperties(dto, entity);
-		categoryService.save(entity);
-		model.addAttribute("message", "Category is saved!");
-		
+
+		// them thong tin categoryId vao product
+		Category category = new Category();
+		category.setCategoryId(dto.getCategoryId());
+		entity.setCategory(category);
+
+		// xu ly luu thong tin cua anh dc upload xuong server va file
+		if (!dto.getImageFile().isEmpty()) {
+			UUID uuid = UUID.randomUUID();
+			String uuidString = uuid.toString();
+
+			entity.setImage(storageService.getStoredFileName(dto.getImageFile(), uuidString));
+			storageService.store(dto.getImageFile(), entity.getImage());
+
+		}
+
+		productService.save(entity);
+
+		model.addAttribute("message", "Product is saved!");
+
 		return new ModelAndView("forward:/admin/products", model);
 	}
-	
+
 	@RequestMapping("")
 	public String list(ModelMap model) {
-		List<Category> list = categoryService.findAll();
+		List<Product> list = productService.findAll();
 		model.addAttribute("products", list);
 		return "admin/products/list";
 	}
-	
+
 	@GetMapping("search")
 	public String search(ModelMap model, @RequestParam(name = "name", required = false) String name) {
-		
+
 		List<Category> list = null;
 		if (StringUtils.hasText(name)) {
 			list = categoryService.findByNameContaining(name);
-		}else {
+		} else {
 			list = categoryService.findAll();
 		}
-		
+
 		model.addAttribute("products", list);
-		
+
 		return "admin/products/search";
 	}
-	
+
 	@GetMapping("searchpaginated")
-	public String search(ModelMap model, 
-			@RequestParam(name = "name", required = false) String name,
-			@RequestParam("page") Optional<Integer> page,
-			@RequestParam("size") Optional<Integer> size) {
-		
+	public String search(ModelMap model, @RequestParam(name = "name", required = false) String name,
+			@RequestParam("page") Optional<Integer> page, @RequestParam("size") Optional<Integer> size) {
+
 		int currentPage = page.orElse(1);
 		int pageSize = size.orElse(5);
-		
-		Pageable pageable = PageRequest.of(currentPage-1, pageSize, Sort.by("name"));
-		
+
+		Pageable pageable = PageRequest.of(currentPage - 1, pageSize, Sort.by("name"));
+
 		Page<Category> resultPage = null;
 
 		if (StringUtils.hasText(name)) {
 			resultPage = categoryService.findByNameContaining(name, pageable);
 			model.addAttribute("name", name);
-		}else {
+		} else {
 			resultPage = categoryService.findAll(pageable);
 		}
-		
+
 		int totalPages = resultPage.getTotalPages();
-		if (totalPages >0) {
-			int start = Math.max(1, currentPage-2);
+		if (totalPages > 0) {
+			int start = Math.max(1, currentPage - 2);
 			int end = Math.min(currentPage + 2, totalPages);
-			
+
 			if (totalPages > 5) {
 				if (end == totalPages) {
 					start = end - 5;
-				}else if (start == 1) {
+				} else if (start == 1) {
 					end = start + 5;
 				}
 			}
-			List<Integer> pageNumbers = IntStream.rangeClosed(start, end)
-					.boxed()
-					.collect(Collectors.toList());
+			List<Integer> pageNumbers = IntStream.rangeClosed(start, end).boxed().collect(Collectors.toList());
 			model.addAttribute("pageNumbers", pageNumbers);
 		}
-		
+
 		model.addAttribute("categoryPage", resultPage);
-		
+
 		return "admin/products/searchpaginated";
 	}
 }
