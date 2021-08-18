@@ -23,6 +23,17 @@ public class AccountSerivceImpl implements AccountService {
 
 	@Autowired
 	private BCryptPasswordEncoder bCryptPasswordEncoder;
+	
+	@Override
+	public Account login(String username, String password) {
+		Optional<Account> optExsited = findById(username);
+		
+		if (optExsited.isPresent() && bCryptPasswordEncoder.matches(password, optExsited.get().getPassword())) {
+			optExsited.get().setPassword("");
+			return optExsited.get();
+		}
+		return null;
+	}
 
 	@Override
 	public <S extends Account> S save(S entity) {
